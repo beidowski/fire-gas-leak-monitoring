@@ -4,6 +4,13 @@ This project is an intelligent safety monitoring system developed as an integrat
 
 ---
 
+## 🎓 Academic Recognition
+This project was developed for the **Embedded Systems** course at **İzmir Bakırçay University**. 
+* **Contributors:** Beyda Kılıçoğlu & Esma Akdemir.
+* **Special Thanks:** I would like to express my gratitude to my teammate Esma Akdemir for her valuable contributions to this project.
+
+---
+
 ## 🛠️ System Architecture
 
 ### 1. Hardware Layer (Arduino)
