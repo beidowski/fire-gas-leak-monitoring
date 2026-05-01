@@ -1,9 +1,3 @@
-GitHub deponun ana dizinine ekleyebileceğin, profesyonel, temiz ve tüm detayları içeren `README.md` dosyasının içeriği aşağıdadır. 
-
-Bu metni kopyalayıp bir `.md` dosyası oluşturarak doğrudan yapıştırabilirsin:
-
----
-
 # 🚀 Fire and Gas Leak Monitoring System
 
 This project is an intelligent safety monitoring system developed as an integrated hardware-software solution using **Arduino** and **Python**. The system provides multi-layered protection by combining real-time physical sensor data with computer vision-based fire and smoke detection.
