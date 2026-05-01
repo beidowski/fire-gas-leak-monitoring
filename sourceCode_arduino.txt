@@ -1,0 +1,90 @@
+#include <DHT.h>
+
+#define DHTPIN 7
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// Pin tanımları
+const int gazAnalogPin = A0;
+const int gazDijitalPin = 3;
+const int ledPin = 5;
+const int butonPin = 2;
+
+volatile bool butonaBasildi = false;
+volatile bool gazInterruptFlag = false;
+
+const float SICAKLIK_ESIK = 27.0;
+const int GAZ_ESIK = 400;
+
+bool alarmAktif = false;
+unsigned long ledKapaliZamani = 0;
+bool ledGeciciKapali = false;
+
+void setup() {
+  pinMode(gazAnalogPin, INPUT);
+  pinMode(gazDijitalPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+  pinMode(butonPin, INPUT_PULLUP);
+
+  Serial.begin(9600);
+  dht.begin();
+
+  attachInterrupt(digitalPinToInterrupt(butonPin), butonInterruptFonksiyonu, FALLING);
+  attachInterrupt(digitalPinToInterrupt(gazDijitalPin), gazInterruptFonksiyonu, RISING);
+}
+
+void loop() {
+  int gazDegeri = analogRead(gazAnalogPin);
+  float sicaklik = dht.readTemperature();
+  float nem = dht.readHumidity();
+
+  // Dijital gaz tetiklemesi bir kereye mahsus kontrol edilecek
+  bool dijitalGazVar = gazInterruptFlag;
+  gazInterruptFlag = false;  // Resetle
+
+  Serial.print("gaz degeri:");
+  Serial.print(gazDegeri);
+  Serial.print("; sicaklik degeri:");
+  Serial.print(sicaklik);
+  Serial.print("; nem degeri:");
+  Serial.print(nem);
+  Serial.print("; gaz dijital:");
+  Serial.println(dijitalGazVar ? "VAR" : "YOK");
+
+  if (sicaklik > SICAKLIK_ESIK || gazDegeri > GAZ_ESIK || dijitalGazVar) {
+    alarmAktif = true;
+  } else {
+    alarmAktif = false;
+  }
+
+  if (butonaBasildi && alarmAktif && !ledGeciciKapali) {
+    ledGeciciKapali = true;
+    ledKapaliZamani = millis();
+    digitalWrite(ledPin, LOW);
+    Serial.println("reset");    // Python'a reset mesajı gönder //-------------------------------------------------
+    butonaBasildi = false;
+  }
+
+  if (ledGeciciKapali && millis() - ledKapaliZamani >= 2000) {
+    ledGeciciKapali = false;
+  }
+
+  if (alarmAktif && !ledGeciciKapali) {
+    digitalWrite(ledPin, HIGH);
+  } else if (!alarmAktif) {
+    digitalWrite(ledPin, LOW);
+    Serial.println("reset");  // Alarm bittiyse de reset mesajı gönderebilirsin //------------------------------
+  }
+
+  delay(500);
+}
+
+void butonInterruptFonksiyonu() {
+  butonaBasildi = true;
+  Serial.println(">> INTERRUPT: Butona basıldı!");
+}
+
+void gazInterruptFonksiyonu() {
+  gazInterruptFlag = true;
+  Serial.println(">> INTERRUPT: Dijital gaz alarmı tetiklendi!");
+}

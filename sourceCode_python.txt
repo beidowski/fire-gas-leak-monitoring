@@ -1,0 +1,267 @@
+import pygame
+import serial
+import cv2
+import tkinter as tk
+from PIL import Image, ImageTk
+import numpy as np
+from datetime import datetime
+
+def uyari_kaydet(kategori, mesaj):
+    # Dosya ismi ve açma, ekleme modunda
+    dosya_adi = "uyarilar_log.txt"
+    zaman = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(dosya_adi, "a", encoding="utf-8") as dosya:
+        dosya.write(f"--- {zaman} ---\n")
+        dosya.write(f"[{kategori}]\n")
+        dosya.write(mesaj + "\n")
+        dosya.write("-" * 40 + "\n")
+
+kamera = None  # Başlangıçta None
+kamera_acik = False  # Kamera durumu takip
+
+# --- Alarm sesleri ayarlanıyor ---
+pygame.mixer.init()
+yangin_sesi = pygame.mixer.Sound(r"C:\Users\1esma\OneDrive\Masaüstü\yangin.mp3")
+gaz_sesi = pygame.mixer.Sound(r"C:\Users\1esma\OneDrive\Masaüstü\gaz.mp3")
+sicaklik_sesi = pygame.mixer.Sound(r"C:\Users\1esma\OneDrive\Masaüstü\sicaklik.mp3")
+
+# --- Arduino bağlantısı ---
+ser = serial.Serial('COM3', 9600)
+
+# --- Tkinter arayüzü ---
+pencere = tk.Tk()
+pencere.title("Yangın ve Gaz Kaçak Takip Sistemi")
+pencere.geometry("900x650")
+pencere.configure(bg="#f0f0f0")
+
+baslik = tk.Label(pencere, text="YANGIN VE GAZ TAKİP SİSTEMİ", font=("Helvetica", 20, "bold"), fg="#003366", bg="#f0f0f0")
+baslik.pack(pady=15)
+
+gaz_label = tk.Label(pencere, text="Gaz Durumu: ---", font=("Arial", 14), bg="#f0f0f0")
+gaz_label.pack(pady=5)
+
+gaz_deger_label = tk.Label(pencere, text="Gaz Değeri: ---", font=("Arial", 14), bg="#f0f0f0")
+gaz_deger_label.pack(pady=5)
+
+sicaklik_label = tk.Label(pencere, text="Sıcaklık: --- °C", font=("Arial", 14), bg="#f0f0f0")
+sicaklik_label.pack(pady=5)
+
+nem_label = tk.Label(pencere, text="Nem: --- %", font=("Arial", 14), bg="#f0f0f0")
+nem_label.pack(pady=5)
+
+alev_label = tk.Label(pencere, text="Alev Durumu: ---", font=("Arial", 14), bg="#f0f0f0")
+alev_label.pack(pady=5)
+
+duman_label = tk.Label(pencere, text="Duman Durumu: ---", font=("Arial", 14), bg="#f0f0f0")
+duman_label.pack(pady=5)
+
+durum_label = tk.Label(pencere, text="Genel Durum: ---", font=("Arial", 16, "bold"), fg="black", bg="#f0f0f0")
+durum_label.pack(pady=15)
+
+panel = tk.Label(pencere, bg="black")
+panel.pack(pady=10)
+
+kamera = cv2.VideoCapture(0)
+
+# --- Başlangıç değerleri ---
+gaz_durumu = "---"
+gaz_degeri = 0
+sicaklik = 0.0
+nem = 0.0
+alev_durumu = "---"
+duman_durumu = "---"
+alev_sayac = 0
+
+GAZ_ESIK = 400
+SICAKLIK_ESIK = 28
+
+def kamera_ac():
+    global kamera, kamera_acik
+    kamera = cv2.VideoCapture(0)
+    kamera_acik = True
+    kamera_guncelle()
+
+def kamera_kapat():
+    global kamera, kamera_acik, panel
+    if kamera_acik and kamera is not None:
+        kamera.release()
+        kamera_acik = False
+        panel.config(image='')  # Tkinter görüntüsünü temizle
+
+def verileri_oku():
+    global gaz_durumu, gaz_degeri, sicaklik, nem
+
+    if ser.in_waiting:
+        try:
+            veri = ser.readline().decode('utf-8').strip()
+            print("Gelen veri:", veri)
+
+            if "gaz degeri" in veri and "sicaklik degeri" in veri and "nem degeri" in veri:
+                parçalar = veri.split(';')
+                gaz_degeri = int(parçalar[0].split(':')[1])
+                sicaklik = float(parçalar[1].split(':')[1])
+                nem = float(parçalar[2].split(':')[1])
+
+                gaz_deger_label.config(text=f"Gaz Değeri: {gaz_degeri}")
+                sicaklik_label.config(text=f"Sıcaklık: {sicaklik:.1f} °C")
+                nem_label.config(text=f"Nem: {nem:.1f} %")
+
+                if sicaklik > SICAKLIK_ESIK:
+                    # Alarm durumu
+                    if not pygame.mixer.get_busy():
+                        sicaklik_sesi.play()
+                        ses_suresi = int(sicaklik_sesi.get_length() * 1000)  # Alarm süresi (milisaniye)
+                        pencere.after(ses_suresi, kamera_ac)  # Ses bitince kamerayı aç
+
+                    if durum_label.cget("text") != "Genel Durum: Yangın Tehlikesi!":
+                        uyari_kaydet("Sıcaklık Tehlikesi Başladı", f"Sıcaklık değeri: {sicaklik:.1f} °C - Başlangıç zamanı: {datetime.now()}")    
+                    durum_label.config(text="Genel Durum: Yangın Tehlikesi!", fg="red")
+                     
+                else:
+                    # Sıcaklık normale döndüğünde kamera kapansın
+                    if kamera_acik:
+                        kamera_kapat()
+                    if durum_label.cget("text") == "Genel Durum: Yangın Tehlikesi!":
+                        uyari_kaydet("Sıcaklık Tehlikesi Bitti", f"Sıcaklık değeri: {sicaklik:.1f} °C - Bitiş zamanı: {datetime.now()}")
+                    durum_label.config(text="Genel Durum: Güvenli", fg="green")
+
+
+
+                if gaz_degeri > GAZ_ESIK:
+                    if gaz_durumu != "Tehlike!":
+                        gaz_sesi.play()
+                        uyari_kaydet("Gaz Tehlikesi Başladı", f"Gaz değeri: {gaz_degeri} - Başlangıç zamanı: {datetime.now()}")
+                    gaz_durumu = "Tehlike!"
+                    gaz_label.config(text="Gaz Durumu: TEHLİKE!", fg="red")
+
+                else:
+                    if gaz_durumu == "Tehlike!":
+                        uyari_kaydet("Gaz Tehlikesi Bitti", f"Gaz değeri: {gaz_degeri} - Bitiş zamanı: {datetime.now()}")
+                    gaz_durumu = "Temiz"
+                    gaz_label.config(text="Gaz Durumu: Temiz", fg="green")
+            else:
+                print("Geçersiz veri:", veri)
+
+        except Exception as e:
+            print("Veri okuma hatası:", e)
+
+    pencere.after(300, verileri_oku)
+
+def kamera_guncelle():
+    if not kamera_acik or kamera is None:
+        duman_label.config(text="Duman Durumu: ---", fg="black")
+        alev_label.config(text="Alev Durumu: ---", fg="black")
+        return
+
+    global alev_durumu, alev_sayac
+
+    ret, frame = kamera.read()
+    if not ret:
+        return
+
+    frame = cv2.resize(frame, (640, 480))
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Alev tespiti
+    lower = np.array([18, 70, 70])
+    upper = np.array([35, 255, 255])
+    mask = cv2.inRange(hsv, lower, upper)
+    mask = cv2.erode(mask, None, iterations=2)
+    mask = cv2.dilate(mask, None, iterations=2)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    alev_var = False
+    for cnt in contours:
+        if cv2.contourArea(cnt) > 2000:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            alev_var = True
+
+    if alev_var:
+        alev_sayac += 1
+    else:
+        alev_sayac = 0
+
+    if alev_sayac >= 5:
+        if alev_durumu != "Alev Tespit Edildi!":
+            uyari_kaydet("Alev Algılama Başladı", f"Alev tespit edildi - Başlangıç zamanı: {datetime.now()}")
+        alev_durumu = "Alev Tespit Edildi!"
+        alev_label.config(text="Alev Durumu: TEHLİKE!", fg="red")
+        if not pygame.mixer.get_busy():
+            yangin_sesi.play()
+        
+        # Uyarı kaydet
+        uyari_kaydet("Alev Algılama", "Alev Tespit Edildi!")
+
+    else:
+        if alev_durumu == "Alev Tespit Edildi!":
+            uyari_kaydet("Alev Algılama Bitti", f"Alev tespiti sona erdi - Bitiş zamanı: {datetime.now()}")
+        alev_durumu = "Alev Yok"
+        alev_label.config(text="Alev Durumu: Temiz", fg="green")
+
+    duman_var = duman_algila(hsv, frame)
+
+    if gaz_durumu == "Tehlike!" or alev_sayac >= 5 or duman_var:
+        durum_label.config(text="Genel Durum: ACİL MÜDAHALE!", fg="red")
+        if not pygame.mixer.get_busy():
+            yangin_sesi.play()
+    else:
+        durum_label.config(text="Genel Durum: Güvenli", fg="green")
+
+    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    img = Image.fromarray(img)
+    imgtk = ImageTk.PhotoImage(image=img)
+    panel.imgtk = imgtk
+    panel.configure(image=imgtk)
+
+    pencere.after(100, kamera_guncelle)
+
+def duman_algila(hsv_frame, frame):
+    global duman_durumu
+
+    lower_duman = np.array([0, 0, 100])
+    upper_duman = np.array([180, 50, 200])
+    mask_duman = cv2.inRange(hsv_frame, lower_duman, upper_duman)
+    mask_duman = cv2.erode(mask_duman, None, iterations=4)
+    mask_duman = cv2.dilate(mask_duman, None, iterations=4)
+
+    contours_duman, _ = cv2.findContours(mask_duman, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    duman_var = False
+    for cnt in contours_duman:
+        if cv2.contourArea(cnt) > 9000:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)
+            duman_var = True
+
+    if duman_var:
+        if duman_durumu != "Duman Tespit Edildi!":
+            uyari_kaydet("Duman Algılama Başladı", f"Duman tespit edildi - Başlangıç zamanı: {datetime.now()}")
+        duman_durumu = "Duman Tespit Edildi!"
+        duman_label.config(text="Duman Durumu: TEHLİKE!", fg="orange")
+    else:
+        if duman_durumu == "Duman Tespit Edildi!":
+            uyari_kaydet("Duman Algılama Bitti", f"Duman tespiti sona erdi - Bitiş zamanı: {datetime.now()}")
+        duman_durumu = "Duman Yok"
+        duman_label.config(text="Duman Durumu: Temiz", fg="green")
+
+    return duman_var
+
+
+
+# --- Kamera ve veri okuma başlat ---
+verileri_oku()
+kamera_guncelle()
+
+# --- Uygulama kapatıldığında kaynakları temizle ---
+def pencere_kapat():
+    global kamera
+    if kamera is not None:
+        kamera.release()
+    pygame.quit()
+    pencere.destroy()
+
+pencere.protocol("WM_DELETE_WINDOW", pencere_kapat)
+
+pencere.mainloop()
